@@ -66,7 +66,7 @@ def add_recipe_to_db():
 
 @app.route('/Recipes', methods=['GET'])
 def get_all_recipes():
-    # Return all ingredients
+    # Return all recipes
     recipes_from_db = mongo_db['recipes'].find()
     response = []
     for recipe in recipes_from_db:
@@ -75,28 +75,35 @@ def get_all_recipes():
     return json.dumps(response)
 
 
-
-@app.route('/OrderStuffPlease/<krogerCode>/<recipeId>', methods=['POST'])
-def get_oauth_token_and_order_stuff(krogerCode, recipeId):
-    # build up order request for kroger
-    recipe_from_db = mongo_db['recipes'].find_one({'_id': ObjectId(recipeId)})
+@app.route('/Recipes/<recipe_id>', methods=['GET'])
+def get_recipe(recipe_id):
+    # Return recipe
+    recipe_from_db = mongo_db['recipes'].find_one({'_id': ObjectId(recipe_id)})
     recipe_json_str = dumps(recipe_from_db)
-    recipe_json = loads(recipe_json_str)
-    cart_data = {'items': []}
-    counter = 0
-    for ingredient in recipe_json['ingredients']:
-        cart_data['items'].append({'upc': ingredient['upc'], 'quantity': int(recipe_json['quantities'][counter]['quantity'])})
-        counter += 1
+    return recipe_json_str
+
+
+@app.route('/OrderStuffPlease', methods=['POST'])
+def get_oauth_token_and_order_stuff():
+    cart_data_json = json.loads(request.data)
 
     # get oauth token with customer level access
-    form_data = {'grant_type': 'authorization_code', 'code': krogerCode, 'redirect_uri': 'http://localhost:4200/ChooseYourRecipe'}
+    form_data = {'grant_type': 'authorization_code', 'code': cart_data_json['krogerUserCode'], 'redirect_uri': 'http://localhost:4200/ChooseYourRecipe'}
     response = requests.post('https://api.kroger.com/v1/connect/oauth2/token', data=form_data, auth=(configs.KROGER_APP_ID, configs.KROGER_APP_SECRET))
     response_json = json.loads(response.text)
     access_token = response_json['access_token']
 
-    print(cart_data)
-    cart_data_json = json.dumps(cart_data)
-    response = requests.put('https://api.kroger.com/v1/cart/add', data=cart_data_json, headers={'Authorization': f'Bearer {access_token}'})
+    kroger_cart_submission_data = {"items": []}
+    count = 0
+    for entry in cart_data_json['quantities']:
+        cart_data_json['quantities'][count]['quantity'] = int(cart_data_json['quantities'][count]['quantity'])
+        kroger_cart_submission_data["items"].append({})
+        kroger_cart_submission_data["items"][count]["upc"] = cart_data_json['ingredients'][count]['upc']
+        kroger_cart_submission_data["items"][count]["quantity"] = cart_data_json['quantities'][count]['quantity']
+        count += 1
+
+    kroger_cart_submission_data_json = json.dumps(kroger_cart_submission_data)
+    response = requests.put('https://api.kroger.com/v1/cart/add', data=kroger_cart_submission_data_json, headers={'Authorization': f'Bearer {access_token}'})
     return str(response.status_code)
 
 
